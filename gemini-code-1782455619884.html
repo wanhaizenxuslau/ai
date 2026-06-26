@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>IT 資產實時連掃系統</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: #121212;
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        /* ─── 上半部份：資料顯示區 (55%) ─── */
+        #display-section {
+            flex: 55;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background-color: #1a1a1a;
+            border-bottom: 3px solid #333;
+            overflow-y: auto;
+        }
+
+        .system-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #007bff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-init {
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        /* 狀態卡片基底 */
+        .status-card {
+            flex: 1;
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        /* 預設等待掃描狀態 */
+        .state-ready { background-color: #2a2a2a; border: 2px dashed #555; text-align: center; color: #aaa; }
+        
+        /* 比對成功狀態 */
+        .state-success { background-color: #1e4620; border: 2px solid #2e7d32; color: #e8f5e9; }
+        
+        /* 比對失敗/異常狀態 */
+        .state-danger { 
+            background-color: #611a15; 
+            border: 2px solid #c62828; 
+            color: #ffebee;
+            animation: shake 0.3s ease-in-out;
+        }
+
+        .card-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .data-row { display: flex; margin-bottom: 8px; font-size: 16px; }
+        .data-label { font-weight: bold; width: 120px; flex-shrink: 0; opacity: 0.8; }
+        .data-value { word-break: break-all; font-family: monospace; }
+
+        /* ─── 下半部份：相機實時區 (45%) ─── */
+        #camera-section {
+            flex: 45;
+            position: relative;
+            background-color: #000;
+        }
+
+        #reader {
+            width: 100% !important;
+            height: 100% !important;
+            border: none !important;
+        }
+
+        #reader video {
+            object-fit: cover; /* 讓相機畫面填滿下半部 */
+        }
+
+        /* 自定義動態掃描線修飾 */
+        .scan-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            border: 2px solid #007bff;
+            box-shadow: inset 0 0 20px rgba(0,123,255,0.2);
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .scan-line {
+            position: absolute;
+            width: 100%; height: 3px;
+            background: linear-gradient(to right, transparent, #007bff, transparent);
+            animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-8px); }
+            40%, 80% { transform: translateX(8px); }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="display-section">
+        <div class="system-title">
+            <span>IT 資產實時連掃系統 v1.0</span>
+            <button class="btn-init" onclick="loadITDatabase()">導入/重設資料庫</button>
+        </div>
+        
+        <div id="status-card" class="status-card state-ready">
+            <div style="font-size: 40px; margin-bottom: 10px;">📷</div>
+            <p>相機已就緒</p>
+            <p style="font-size: 13px; margin-top: 5px;">請將設備條碼移入下方鏡頭範圍</p>
+        </div>
+    </div>
+
+    <div id="camera-section">
+        <div id="reader"></div>
+        <div class="scan-overlay">
+            <div class="scan-line"></div>
+        </div>
+    </div>
+
+<script>
+    const statusCard = document.getElementById('status-card');
+    let html5QrCode;
+    let lastScannedCode = "";
+    let lastScannedTime = 0;
+
+    // 1. 初始化資料庫（包含你提供的最新測試資料）
+    function loadITDatabase() {
+        const itDatabase = [
+            { 
+                "propertyNo": "HKHKG01-05-0100-000857", 
+                "location": "IT STORE ROOM", 
+                "user": "IT" 
+            },
+            { 
+                "propertyNo": "HKHKG01-05-0100-000858", 
+                "location": "7F Server Room", 
+                "user": "Network Team" 
+            }
+        ];
+        localStorage.setItem('realtime_it_db', JSON.stringify(itDatabase));
+        alert("IT 資料庫初始成功！\n已導入目標資產：HKHKG01-05-0100-000857");
+    }
+
+    function getDatabase() {
+        const data = localStorage.getItem('realtime_it_db');
+        return data ? JSON.parse(data) : [];
+    }
+
+    // 2. 核心：實時相機流掃描成功回呼
+    function onScanSuccess(decodedText, decodedResult) {
+        let scannedNo = decodedText.trim();
+        const now = Date.now();
+
+        // 智慧分號截取
+        if (scannedNo.includes(';')) {
+            scannedNo = scannedNo.split(';')[0].trim();
+        }
+
+        // 防重複機制：如果 3 秒內掃到同一個條碼，直接忽略，避免畫面一直閃爍
+        if (scannedNo === lastScannedCode && (now - lastScannedTime) < 3000) {
+            return; 
+        }
+
+        // 更新最後掃描紀錄
+        lastScannedCode = scannedNo;
+        lastScannedTime = now;
+
+        // 開始進行本地比對
+        const db = getDatabase();
+        const matchedAsset = db.find(item => item.propertyNo === scannedNo);
+
+        if (matchedAsset) {
+            // 🎯 【狀況 A：綠色成功】
+            statusCard.className = "status-card state-success";
+            statusCard.innerHTML = `
+                <div class="card-title">🟢 資產比對一致</div>
+                <div class="data-row"><span class="data-label">Property No:</span><span class="data-value"><strong>${matchedAsset.propertyNo}</strong></span></div>
+                <div class="data-row"><span class="data-label">Location:</span><span class="data-value">${matchedAsset.location}</span></div>
+                <div class="data-row"><span class="data-label">User:</span><span class="data-value">${matchedAsset.user}</span></div>
+            `;
+        } else {
+            // 🚨 【狀況 B：紅色警告】
+            statusCard.className = "status-card state-danger";
+            statusCard.innerHTML = `
+                <div class="card-title">⚠️ 警告：異常資產！</div>
+                <div class="data-row" style="margin-bottom: 8px;"><strong>此條碼未登記於 IT 資產庫中！</strong></div>
+                <div class="data-row"><span class="data-label">掃描到編號:</span><span class="data-value" style="text-decoration: underline;">${scannedNo}</span></div>
+            `;
+        }
+    }
+
+    // 3. 啟動永遠開啟的實時相機鏡頭
+    function startRealTimeCamera() {
+        html5QrCode = new Html5Qrcode("reader");
+        
+        // 設定相機參數
+        const config = { 
+            fps: 20,              // 提高偵測頻率，讓連續掃描更靈敏
+            qrbox: function(w, h) {
+                return { width: w * 0.7, height: h * 0.7 }; // 動態調整掃描敏感區域
+            }
+        };
+
+        // 強制調用後置鏡頭 (environment)
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            config, 
+            onScanSuccess
+        ).catch(err => {
+            console.error("相機啟動失敗:", err);
+            statusCard.className = "status-card state-danger";
+            statusCard.innerHTML = `
+                <div class="card-title">❌ 無法實時啟動相機</div>
+                <p style="font-size:14px; line-height:1.4;">手機瀏覽器封鎖了本地檔案(file://)的實時相機流。</p>
+                <p style="font-size:13px; margin-top:10px; color:#ffc107;">【解決方法】請將此網頁內容貼到 CodePen.io，或上傳至免費的 HTTPS 空間，用手機打開該網址即可完美運行！</p>
+            `;
+        });
+    }
+
+    // 網頁載入後自動啟動
+    window.addEventListener('load', () => {
+        // 如果第一次用沒資料，自動幫忙塞入測試資料
+        if (getDatabase().length === 0) {
+            loadITDatabase();
+        }
+        startRealTimeCamera();
+    });
+</script>
+</body>
+</html>
